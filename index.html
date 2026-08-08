@@ -448,6 +448,54 @@
       border-left: 3px dashed var(--ink);
     }
 
+    .notify-status {
+      min-height: 18px;
+      margin: 18px 0 0;
+      color: #ffe9b8;
+      font-size: clamp(0.72rem, 1.5vmin, 0.86rem);
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .notify-status[hidden] {
+      display: none;
+    }
+
+    .notify-action {
+      display: inline-block;
+      justify-self: center;
+      margin-top: 14px;
+      padding: 12px 18px;
+      border: 3px solid var(--ink);
+      color: var(--ink);
+      background: var(--gold);
+      box-shadow: 4px 4px 0 var(--ink);
+      font-size: clamp(0.72rem, 1.5vmin, 0.86rem);
+      font-weight: 950;
+      letter-spacing: 0.02em;
+      text-decoration: none;
+      text-transform: uppercase;
+      transition:
+        transform 140ms var(--ease-out),
+        box-shadow 140ms var(--ease-out);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .notify-action[hidden] {
+      display: none;
+    }
+
+    .notify-action:active {
+      box-shadow: 2px 2px 0 var(--ink);
+      transform: translate3d(2px, 2px, 0);
+    }
+
+    .notify-action:focus-visible {
+      outline: 4px solid var(--paper-soft);
+      outline-offset: 4px;
+    }
+
     .opening-shutter {
       position: absolute;
       inset: -1px;
@@ -654,6 +702,11 @@
     @media (hover: hover) and (pointer: fine) {
       .answer-button--yes:hover {
         background: var(--red-bright);
+        transform: translate3d(-2px, -2px, 0);
+        box-shadow: 6px 6px 0 var(--ink);
+      }
+
+      .notify-action:hover {
         transform: translate3d(-2px, -2px, 0);
         box-shadow: 6px 6px 0 var(--ink);
       }
@@ -906,9 +959,34 @@
           <strong>7:00 p. m.</strong>
           <span>Tú + yo ♥</span>
         </div>
+        <p id="notify-status" class="notify-status" role="status" aria-live="polite" hidden></p>
+        <a id="whatsapp-fallback" class="notify-action" target="_blank" rel="noopener" hidden>Avísale por WhatsApp ♥</a>
       </section>
     </article>
   </main>
+
+  <!--
+    ⚙️ CONFIGURACIÓN DE NOTIFICACIONES
+    Solo tienes que editar los valores de aquí abajo. Lee NOTIFICACIONES.md
+    para el paso a paso de cómo obtener la URL del Web App de Google.
+  -->
+  <script id="invitation-config">
+    window.INVITACION_CONFIG = {
+      // URL del Web App de Google Apps Script (termina en /exec).
+      // Si la dejas vacía, la página no envía nada y solo queda el botón de WhatsApp.
+      endpointNotificaciones: '',
+
+      // Palabra secreta compartida con el Apps Script (debe ser idéntica allá).
+      tokenNotificaciones: 'cita-0808',
+
+      // Tu número con indicativo y sin signos, ej: '573001112233'.
+      // Se usa para el botón de respaldo "Avísale por WhatsApp".
+      whatsappRespaldo: '',
+
+      // Nombre de ella, solo para que el correo llegue más bonito.
+      nombreInvitada: 'Mi novia'
+    };
+  </script>
 
   <script id="invitation-script">
     (() => {
@@ -919,6 +997,8 @@
       const yesButton = document.querySelector('#yes-button');
       const noButton = document.querySelector('#no-button');
       const teaseMessage = document.querySelector('#tease-message');
+      const notifyStatus = document.querySelector('#notify-status');
+      const whatsappFallback = document.querySelector('#whatsapp-fallback');
       const ambientWebs = [...document.querySelectorAll('.ambient-web')];
       const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
       const finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -926,6 +1006,144 @@
       const parallax = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, frame: 0 };
       let noAttempts = 0;
       let spiderTimer = 0;
+
+      const notifyConfig = {
+        endpointNotificaciones: '',
+        tokenNotificaciones: '',
+        whatsappRespaldo: '',
+        nombreInvitada: '',
+        ...(window.INVITACION_CONFIG || {})
+      };
+      const SENT_KEY = 'cita-0808:aviso-enviado';
+      const PENDING_KEY = 'cita-0808:aviso-pendiente';
+
+      function readStore(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function writeStore(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (error) {
+          /* Modo privado o almacenamiento bloqueado: seguimos sin persistir. */
+        }
+      }
+
+      function clearStore(key) {
+        try {
+          localStorage.removeItem(key);
+        } catch (error) {
+          /* Igual que arriba: el aviso ya se intentó, no hay nada más que hacer. */
+        }
+      }
+
+      function setNotifyStatus(message) {
+        if (!notifyStatus) return;
+        notifyStatus.textContent = message;
+        notifyStatus.hidden = !message;
+      }
+
+      function buildWhatsAppMessage() {
+        return '¡Sí acepto la cita! 🕷♥ Nos vemos hoy a las 7:00 p. m.: primero alitas y después El Hombre Araña.';
+      }
+
+      function setupWhatsAppFallback() {
+        if (!whatsappFallback) return;
+        const number = String(notifyConfig.whatsappRespaldo || '').replace(/\D/g, '');
+        if (!number) return;
+        whatsappFallback.href = `https://wa.me/${number}?text=${encodeURIComponent(buildWhatsAppMessage())}`;
+        whatsappFallback.dataset.ready = 'true';
+      }
+
+      function revealWhatsAppFallback() {
+        if (whatsappFallback?.dataset.ready === 'true') whatsappFallback.hidden = false;
+      }
+
+      function buildAcceptancePayload() {
+        const now = new Date();
+        return {
+          evento: 'cita-aceptada',
+          token: notifyConfig.tokenNotificaciones,
+          invitada: notifyConfig.nombreInvitada,
+          aceptadaEn: now.toISOString(),
+          aceptadaEnLocal: now.toLocaleString('es-CO'),
+          zonaHoraria: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+          intentosDeNo: noAttempts,
+          dispositivo: navigator.userAgent
+        };
+      }
+
+      // Apps Script no acepta preflight, por eso el cuerpo viaja como texto plano.
+      function postAcceptance(payload, mode) {
+        return fetch(notifyConfig.endpointNotificaciones, {
+          method: 'POST',
+          mode,
+          redirect: 'follow',
+          keepalive: true,
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        }).then((response) => {
+          // En modo no-cors la respuesta es opaca: si no lanzó error, la damos por entregada.
+          if (mode === 'cors' && !response.ok) throw new Error(`HTTP ${response.status}`);
+          return true;
+        });
+      }
+
+      async function deliverAcceptance(payload) {
+        try {
+          return await postAcceptance(payload, 'cors');
+        } catch (error) {
+          return await postAcceptance(payload, 'no-cors');
+        }
+      }
+
+      async function notifyAcceptance() {
+        revealWhatsAppFallback();
+
+        if (!notifyConfig.endpointNotificaciones) return;
+        if (readStore(SENT_KEY)) {
+          setNotifyStatus('Ya le avisé ♥');
+          return;
+        }
+
+        const payload = buildAcceptancePayload();
+        writeStore(PENDING_KEY, JSON.stringify(payload));
+        setNotifyStatus('Enviando el aviso…');
+
+        try {
+          await deliverAcceptance(payload);
+          clearStore(PENDING_KEY);
+          writeStore(SENT_KEY, payload.aceptadaEn);
+          setNotifyStatus('Aviso enviado ♥');
+        } catch (error) {
+          setNotifyStatus('No pude avisarle sola: usa el botón de WhatsApp');
+        }
+      }
+
+      async function retryPendingAcceptance() {
+        const raw = readStore(PENDING_KEY);
+        if (!raw || !notifyConfig.endpointNotificaciones) return;
+
+        let payload;
+        try {
+          payload = JSON.parse(raw);
+        } catch (error) {
+          clearStore(PENDING_KEY);
+          return;
+        }
+
+        try {
+          await deliverAcceptance(payload);
+          clearStore(PENDING_KEY);
+          writeStore(SENT_KEY, payload.aceptadaEn || new Date().toISOString());
+        } catch (error) {
+          /* Sigue pendiente: se reintenta la próxima vez que abra la página. */
+        }
+      }
 
       function runOpeningSequence() {
         if (reduceMotion) return;
@@ -1190,6 +1408,7 @@
       function celebrate() {
         if (invitePanel.hidden) return;
         resetYesButton();
+        notifyAcceptance();
         invitePanel.animate(
           [
             { opacity: 1, transform: 'scale(1)', filter: 'blur(0)' },
@@ -1239,6 +1458,8 @@
 
       function initInvitation() {
         runOpeningSequence();
+        setupWhatsAppFallback();
+        retryPendingAcceptance();
         noButton.addEventListener('pointerenter', (event) => {
           if (event.pointerType === 'mouse') moveNoButton(event);
         });

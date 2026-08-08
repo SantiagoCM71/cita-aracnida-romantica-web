@@ -989,16 +989,18 @@
         });
       }
 
-      function findSafeTransform(rect, yesRect, viewportWidth, viewportHeight) {
+      function findSafeTransform(rect, yesRect, bounds) {
         const padding = 14;
-        const maxLeft = Math.max(padding, viewportWidth - rect.width - padding);
-        const maxTop = Math.max(padding, viewportHeight - rect.height - padding);
-        let candidate = { left: padding, top: padding };
+        const minLeft = bounds.left + padding;
+        const minTop = bounds.top + padding;
+        const maxLeft = Math.max(minLeft, bounds.right - rect.width - padding);
+        const maxTop = Math.max(minTop, bounds.bottom - rect.height - padding);
+        let candidate = { left: minLeft, top: minTop };
 
         for (let index = 0; index < 20; index += 1) {
           candidate = {
-            left: padding + Math.random() * Math.max(1, maxLeft - padding),
-            top: padding + Math.random() * Math.max(1, maxTop - padding)
+            left: minLeft + Math.random() * Math.max(1, maxLeft - minLeft),
+            top: minTop + Math.random() * Math.max(1, maxTop - minTop)
           };
           const candidateRect = {
             left: candidate.left,
@@ -1086,7 +1088,7 @@
         if (event?.cancelable) event.preventDefault();
         const rect = noButton.getBoundingClientRect();
         const yesRect = yesButton.getBoundingClientRect();
-        const safe = findSafeTransform(rect, yesRect, innerWidth, innerHeight);
+        const safe = findSafeTransform(rect, yesRect, cover.getBoundingClientRect());
         createWebTrail(rect, safe);
         noOffset.x += safe.x;
         noOffset.y += safe.y;

@@ -1239,10 +1239,13 @@
 
       function initInvitation() {
         runOpeningSequence();
-        noButton.addEventListener('pointerenter', moveNoButton);
+        noButton.addEventListener('pointerenter', (event) => {
+          if (event.pointerType === 'mouse') moveNoButton(event);
+        });
         noButton.addEventListener('pointerdown', moveNoButton);
-        noButton.addEventListener('touchstart', moveNoButton, { passive: false });
-        noButton.addEventListener('click', moveNoButton);
+        if (!('PointerEvent' in window)) {
+          noButton.addEventListener('touchstart', moveNoButton, { passive: false });
+        }
         noButton.addEventListener('focus', (event) => {
           moveNoButton(event);
           yesButton.focus({ preventScroll: true });
